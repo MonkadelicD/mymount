@@ -1,5 +1,5 @@
 #!/bin/bash
-# mymount
+# Script: mymount
 # This script mounts or unmounts my local NFS ISO share
 # Create a hard or soft link to mount-isos called unmount-isos
 
