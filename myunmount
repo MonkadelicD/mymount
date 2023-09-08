@@ -23,16 +23,20 @@ mycommand="$(basename $0)"
 # help function
 help() {
   # Display Help
-  echo "This command will mount or unmount a specified remote"
+  echo "**CORRECT USAGE**"
+  echo "${mycommand^} will ${mycommand:2} a specified remote."
+  echo "Run $mycommand with sudo or as root user."
   echo
-  echo "Syntax: mymount|myunmount <mount name>"
-  echo "mounts names:"
-  echo "  backups   NFS share from NAS for docs and working files"
-  echo "  isos      NFS share from NAS for OS ISO images"
-  echo "  shares    NFS share from NAS for various LAN shared directories"
-  echo "  all       All three of the above shares"
+  echo "Syntax: $mycommand <mount-name>"
+  echo "valid mount-names:"
+  echo "  -b, --backups   NFS share from NAS for docs and working files"
+  echo "  -i, --isos      NFS share from NAS for OS ISO images"
+  echo "  -s, --shares    NFS share from NAS for various LAN shared directories"
+  echo "  -a, --all       All three of the above shares"
   echo
-  echo "  help      Prints this message."
+  echo "  -h, --help      Prints this message."
+  echo
+  exit 1
 }
 
 ## Script Prerequisites
@@ -43,33 +47,34 @@ user=$(id -u)
 if [[ $user > 0 ]];
 then
   echo "This command requires root. Use sudo or switch to root"
-  exit
+  exit 1
 fi
 
 # No arguments and more than 1 arguments should print a help msg
 if [[ $# -lt 1 ]] || [[ $# -gt 1 ]]; then
-  echo "Must have one arguement to determine which mount we are operating on"
   help
-  exit
 fi
 
 # which mount are we working on?
 case $1 in
-  backups)
+  -b | --backups)
     naspath="$nasbackups"
     localpath="$localbackups"
     ;;
-  isos)
+  -i | --isos)
     naspath="$nasisos"
     localpath="$localisos"
     ;;
-  shares)
+  -s | --shares)
     naspath="$nasshares"
     localpath="$localshares"
     ;;
-  all)
+  -s | --all)
     naspath=("$nasbackups" "$nasisos" "$nasshares")
     localpath=("$localbackups" "$localisos" "$localshares")
+    ;;
+  -h | --help)
+    help
     ;;
   *)
     help
@@ -81,22 +86,25 @@ esac
 # a link must be made to mymount called myunmount
 if [[ ${#naspath[@]} -eq ${#localpath[@]} ]]; then
   for i in ${!naspath[@]}; do
-    if [[ $mycommand == "mymount" ]];
-    then
+    if [[ $mycommand == "mymount" ]]; then
       if [ ! -d ${localpath[$i]} ]; then
-        mkdir ${localpath[$i]} || echo "${localpath[$i]} does not exist and I cannot make it"; exit
+        mkdir ${localpath[$i]} || { echo "${localpath[$i]} does not exist and I cannot make it"; exit 1; }
       fi
-      mount -o tcp,vers=3 -t nfs ${naspath[$i]} ${localpath[$i]} || echo "Failed to mount $1 at ${localpath[$i]}"
-    elif [[ $mycommand == "myunmount" ]];
-    then
-      umount ${localpath[$i]} || echo "Failed to unmount ${localpath[$i]}"
+      if findmnt --mountpoint "${localpath[$i]}" &> /dev/null; then
+        echo "${localpath[$i]} is already mounted"
+      else
+        mount -o tcp,vers=3 -t nfs ${naspath[$i]} ${localpath[$i]} || { echo "Failed to mount $1 at ${localpath[$i]}"; exit 1; }
+      fi
+    elif [[ $mycommand == "myunmount" ]]; then
+      umount ${localpath[$i]} || { echo "Failed to unmount ${localpath[$i]}"; exit 1; }
     else
       echo "I don't know how we got here. "'$mycommand'" isn't looking good"
-      exit
+      exit 1
     fi
   done
 else
   echo "Something went wrong!"
   echo "Time to troubleshoot the script."
   echo '$naspath does not have the same number of items as $localpath'
+  exit 1
 fi
