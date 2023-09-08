@@ -47,7 +47,8 @@ user=$(id -u)
 if [[ $user > 0 ]];
 then
   echo "This command requires root. Use sudo or switch to root"
-  exit 1
+  echo
+  help
 fi
 
 # No arguments and more than 1 arguments should print a help msg
