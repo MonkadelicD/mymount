@@ -70,7 +70,7 @@ case $1 in
     naspath="$nasshares"
     localpath="$localshares"
     ;;
-  -s | --all)
+  -a | --all)
     naspath=("$nasbackups" "$nasisos" "$nasshares")
     localpath=("$localbackups" "$localisos" "$localshares")
     ;;
