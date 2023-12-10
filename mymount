@@ -56,6 +56,13 @@ if [[ $# -lt 1 ]] || [[ $# -gt 1 ]]; then
   help
 fi
 
+# Check for mount.nfs utility
+if ! which mount.nfs; then
+  echo "Can't find mount.nfs utilty."
+  echo "Ensure it is installed before running again."
+  help
+fi
+
 # which mount are we working on?
 case $1 in
   -b | --backups)
@@ -89,7 +96,7 @@ if [[ ${#naspath[@]} -eq ${#localpath[@]} ]]; then
   for i in ${!naspath[@]}; do
     if [[ $mycommand == "mymount" ]]; then
       if [ ! -d ${localpath[$i]} ]; then
-        mkdir ${localpath[$i]} || { echo "${localpath[$i]} does not exist and I cannot make it"; exit 1; }
+        mkdir -p ${localpath[$i]} || { echo "${localpath[$i]} does not exist and I cannot make it"; exit 1; }
       fi
       if findmnt --mountpoint "${localpath[$i]}" &> /dev/null; then
         echo "${localpath[$i]} is already mounted"
