@@ -5,16 +5,20 @@
 
 ## BEGIN VARIABLES
 
+# User home directory
+user=$(logname)
+userHome=$(bash -c "cd ~$(printf %q "$user") && pwd")
+
 # Paths on NAS
 nasserver="nas.tehmonk.com"
 nasbackups="${nasserver}:/mnt/vit-nas1/backups"
 nasisos="${nasserver}:/mnt/vit-nas1/LAN-Storage/ISO_Store"
-nasShareName="ShareData"
+nasShareName="//${nasserver}/ShareData"
 
 # Local paths
-localbackups="${HOME}/lanshares/backups"
-localisos="${HOME}/lanshares/iso_store"
-localShareName="${HOME}/lanshares/sharedata"
+localbackups="${userHome}/lanshares/backups"
+localisos="${userHome}/lanshares/iso_store"
+localShareName="${userHome}/lanshares/sharedata"
 
 # get command that launched this script
 mycommand="$(basename "$0")"
@@ -43,7 +47,7 @@ help() {
 }
 
 mount_smb() {
-  mount -t cifs -o "${naspath[$i]}" "${localpath[$i]}" -o credentials=~/.smbcreds,uid="${userId}",gid="${userGid}",vers=3
+  mount -t cifs "${naspath[$i]}" "${localpath[$i]}" -o credentials="${userHome}"/.smbcreds,uid="${userId}",gid="${userGid}",vers=3
 }
 
 mount_nfs() {
@@ -78,7 +82,7 @@ if ! which mount.nfs; then
 fi
 
 # get calling user ID and group ID
-userId=$(logname)
+userId=$(id -u "$(logname)")
 userGid=$(id -g "$(logname)")
 
 ## END PREREQUISITES
