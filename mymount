@@ -1,168 +1,168 @@
 #!/bin/bash
-# Script: mymount
-# This script mounts or unmounts my local NFS ISO share
-# Create a hard or soft link to mount-isos called unmount-isos
+set -euo pipefail
 
-## BEGIN VARIABLES
+# ===========================
+# 1. Root and tool checks
+# ===========================
+if [[ "$(id -u)" -ne 0 ]]; then
+  echo "ERROR: This must be run as root (sudo)."
+  exit 1
+fi
 
-# User home directory
-user=$(logname)
-userHome=$(bash -c "cd ~$(printf %q "$user") && pwd")
+if ! command -v mount.nfs >/dev/null 2>&1; then
+  echo "ERROR: mount.nfs not found. Install nfs-common or equivalent."
+  exit 1
+fi
 
-# Paths on NAS
-nasserver="nas.tehmonk.com"
-nasbackups="${nasserver}:/mnt/vit-nas1/backups"
-nasisos="${nasserver}:/mnt/vit-nas1/LAN-Storage/ISO_Store"
-nasShareName="//${nasserver}/ShareData"
+# ===========================
+# 2. Discover shares from env
+# ===========================
+# Find MYMOUNT_NAS_<name> in environment, collect share names
+share_names=()
+while IFS='=' read -r var _; do
+  [[ "$var" =~ ^MYMOUNT_NAS_([A-Za-z0-9_]+)$ ]] || continue
+  share="${BASH_REMATCH[1]}"
+  share_names+=("$share")
+done < <(env)
 
-# Local paths
-localbackups="${userHome}/lanshares/backups"
-localisos="${userHome}/lanshares/iso_store"
-localShareName="${userHome}/lanshares/sharedata"
+if [[ ${#share_names[@]} -eq 0 ]]; then
+  echo "ERROR: No NAS shares configured in environment. Export variables like MYMOUNT_NAS_backups."
+  exit 1
+fi
 
-# get command that launched this script
-mycommand="$(basename "$0")"
+# ===========================
+# 3. Build NAS/Local path maps
+# ===========================
+declare -A NAS_PATHS
+declare -A LOCAL_PATHS
 
-## END VARIABLES
+local_root="${MYMOUNT_LOCAL_ROOT:-$HOME/lanshares}"
 
-## BEGIN FUNCTIONS
+for share in "${share_names[@]}"; do
+  nas_var="MYMOUNT_NAS_${share}"
+  NAS_PATHS["$share"]="${!nas_var}"
 
-# help function
+  local_var="MYMOUNT_LOCAL_${share}"
+  # Default: $local_root/share
+  LOCAL_PATHS["$share"]="${!local_var:-$local_root/$share}"
+done
+
+# ===========================
+# 4. Help function
+# ===========================
 help() {
-  # Display Help
-  echo "**CORRECT USAGE**"
-  echo "${mycommand^} will ${mycommand:2} a specified remote."
-  echo "Run $mycommand with sudo or as root user."
+  echo "**USAGE**"
+  echo "$(basename "$0") [options]"
   echo
-  echo "Syntax: $mycommand <mount-name>"
-  echo "valid mount-names:"
-  echo "  -b, --backups   NFS share from NAS for docs and working files"
-  echo "  -i, --isos      NFS share from NAS for OS ISO images"
-  echo "  -s, --shares    CIFS share from NAS for various LAN shared directories"
-  echo "  -a, --all       All three of the above shares"
+  echo "Options:"
+  for share in "${share_names[@]}"; do
+    echo "  -${share:0:1}, --$share   Mount/unmount '$share' share"
+  done
+  echo "  -a, --all       All shares listed above"
+  echo "  -h, --help      This help message"
   echo
-  echo "  -h, --help      Prints this message."
+  echo "Environment-based shares discovered:"
+  for share in "${share_names[@]}"; do
+    echo "  $share: NAS='${NAS_PATHS[$share]}', LOCAL='${LOCAL_PATHS[$share]}'"
+  done
   echo
+  echo "You may define new shares by setting MYMOUNT_NAS_<name> and optionally MYMOUNT_LOCAL_<name>."
   exit 1
 }
 
-mount_smb() {
-  mount -t cifs "${naspath[$i]}" "${localpath[$i]}" -o credentials="${userHome}"/.smbcreds,uid="${userId}",gid="${userGid}",vers=3
-}
+# ===========================
+# 5. Argument parsing
+# ===========================
+[[ $# -eq 0 ]] && help
 
-mount_nfs() {
-  mount -o tcp,vers=3 -t nfs "${naspath[$i]}" "${localpath[$i]}"
-}
-
-## END FUNCTIONS
-
-## BEGIN PREREQUISITES
-
-# Script must be run as root or with sudo
-user=$(id -u)
-
-if [[ $user -gt 0 ]];
-then
-  echo "This command requires root. Use sudo or switch to root"
-  echo
-  echo "======================================================"
-  help
-fi
-
-# No arguments and more than 1 arguments should print a help msg
-if [[ $# -lt 1 ]] || [[ $# -gt 1 ]]; then
-  help
-fi
-
-# Check for mount.nfs utility
-if ! which mount.nfs; then
-  echo "Can't find mount.nfs utilty."
-  echo "Ensure it is installed before running again."
-  help
-fi
-
-# get calling user ID and group ID
-userId=$(id -u "$(logname)")
-userGid=$(id -g "$(logname)")
-
-## END PREREQUISITES
-
-## BEGIN SCRIPT
-
-# which mount are we working on?
-case $1 in
-  -b | --backups)
-    mountReq="backups"
-    naspath="$nasbackups"
-    localpath="$localbackups"
-    ;;
-  -i | --isos)
-    mountReq="ISO-Store"
-    naspath="$nasisos"
-    localpath="$localisos"
-    ;;
-  -s | --shares)
-    mountReq="ShareData"
-    naspath="$nasShareName"
-    localpath="$localShareName"
-    ;;
-  -a | --all)
-    mountReq="all"
-    naspath=("$nasbackups" "$nasisos" "$nasShareName")
-    localpath=("$localbackups" "$localisos" "$localShareName")
-    ;;
-  -h | --help)
+# Build actions list
+shares=()
+while [[ $# -gt 0 ]]; do
+  opt="$1"
+  found=0
+  case "$opt" in
+    -a|--all)
+      shares=("${share_names[@]}")
+      found=1
+      ;;
+    -h|--help)
+      help
+      ;;
+    *)
+      for share in "${share_names[@]}"; do
+        if [[ "$opt" == "-${share:0:1}" || "$opt" == "--$share" ]]; then
+          shares+=("$share")
+          found=1
+          break
+        fi
+      done
+      ;;
+  esac
+  if [[ $found -eq 0 ]]; then
+    echo "Invalid option: $opt"
     help
-    ;;
-  *)
-    help
-    ;;
-esac
+  fi
+  shift
+done
 
-## if called with mymount, mount the share
-## if called with unmount, unmount the share
-## a link must be made to mymount called myunmount
+# Deduplicate shares
+mapfile -t shares < <(printf "%s\n" "${shares[@]}" | sort -u)
 
-# make sure array lengths are equal
-if [[ ${#naspath[@]} -ne ${#localpath[@]} ]]; then
-  echo "You shouldn't see this message. Something is broken..."
+if [[ ${#shares[@]} -eq 0 ]]; then
+  echo "No valid shares requested."
+  help
+fi
+
+# ===========================
+# 6. Action determination
+# ===========================
+mycommand="$(basename "$0")"
+action=""
+if [[ "$mycommand" == "mymount" ]]; then
+  action="mount"
+elif [[ "$mycommand" == "myunmount" ]]; then
+  action="unmount"
+else
+  echo "Unknown command name: $mycommand"
   exit 1
 fi
 
-for i in "${!naspath[@]}"; do
-  if [[ $mycommand == "mymount" ]]; then
-    # Try to create the mount directory if it doesn't exist
-    if [ ! -d "${localpath[$i]}" ]; then
-      mkdir -p "${localpath[$i]}" || { echo "${localpath[$i]} does not exist and I cannot make it"; exit 1; }
-    fi
+nfsopts="${MYMOUNT_OPTS:-tcp,vers=3}"
 
-    # Check if already mounted
-    if findmnt --mountpoint "${localpath[$i]}" &> /dev/null; then
-      echo "${localpath[$i]} is already mounted"
-    fi
+# ===========================
+# 7. Main loop (continue on errors)
+# ===========================
+failures=()
+for share in "${shares[@]}"; do
+  naspath="${NAS_PATHS[$share]}"
+  localpath="${LOCAL_PATHS[$share]}"
 
-    # Mount NFS or CIFS depending on number of paths
-    if [[ "${#naspath[@]}" -eq 1 ]]; then
-      if [ "$1" = "-b" ] || [ "$1" = "-i" ]; then
-        mount_nfs || { echo "Failed to mount $mountReq at ${localpath[$i]}"; exit 1; }
-      elif [ "$1" = "-s" ]; then 
-        mount_smb || { echo "Failed to mount $mountReq at ${localpath[$i]}"; exit 1; }
-      fi
-    elif [[ "${#naspath[@]}" -eq 3 ]]; then
-      if [ "$i" = 1 ] || [ "$i" = 2 ]; then
-        mount_nfs || { echo "Failed to mount $mountReq at ${localpath[$i]}"; exit 1; }
-      elif [ "$i" = 3 ]; then
-        mount_smb || { echo "Failed to mount $mountReq at ${localpath[$i]}"; exit 1; }
+  if [[ "$action" == "mount" ]]; then
+    mkdir -p "$localpath"
+    if mountpoint -q "$localpath"; then
+      echo "$localpath: already mounted."
+    else
+      echo "Mounting '$share' to $localpath..."
+      if ! mount -o "$nfsopts" -t nfs "$naspath" "$localpath"; then
+        echo "FAILED to mount $share."
+        failures+=("$share")
       fi
     fi
-
-  # Unmount the share
-  elif [[ $mycommand == "myunmount" ]]; then
-    umount "${localpath[$i]}" || { echo "Failed to unmount ${localpath[$i]}"; exit 1; }
-  else
-    echo "I don't know how we got here. "'$mycommand'" isn't looking good"
-    exit 1
+  elif [[ "$action" == "unmount" ]]; then
+    if mountpoint -q "$localpath"; then
+      echo "Unmounting '$share' from $localpath..."
+      if ! umount "$localpath"; then
+        echo "FAILED to unmount $localpath."
+        failures+=("$share")
+      fi
+    else
+      echo "$localpath: not mounted."
+    fi
   fi
 done
 
-## END SCRIPT
+if [[ ${#failures[@]} -gt 0 ]]; then
+  echo "The following shares FAILED: ${failures[*]}"
+  exit 1
+fi
+
