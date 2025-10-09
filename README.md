@@ -55,14 +55,14 @@ source ~/.mymount.env
 Copy the script to a directory in your PATH (e.g. `~/bin`) and make it executable:
 
 ```bash
-cp mymount ~/bin/
-chmod +x ~/bin/mymount
+sudo cp mymount /usr/local/bin/
+chmod +x /usr/local/bin/mymount
 ```
 
 Create a hard link for unmounting:
 
 ```bash
-ln ~/bin/mymount ~/bin/myunmount
+ln /usr/local/bin/mymount /usr/local/bin/myunmount
 ```
 
 ***
