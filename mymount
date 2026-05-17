@@ -2,7 +2,29 @@
 set -euo pipefail
 
 # ===========================
-# 1. Root and tool checks
+# 1. Config file support
+# ===========================
+# Load env from XDG_CONFIG_HOME/mymount/env (default: ~/.config/mymount/env)
+config_file="${XDG_CONFIG_HOME:-$HOME/.config}/mymount/env"
+if [[ -f "$config_file" ]]; then
+  echo "Loading env: $config_file"
+  set -a
+  source "$config_file"
+  set +a
+elif [[ -n "${SUDO_USER:-}" ]]; then
+  # Running under sudo — try the original user's config
+  sudoer_home=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+  sudoer_config="${XDG_CONFIG_HOME:-$sudoer_home/.config}/mymount/env"
+  if [[ -f "$sudoer_config" ]]; then
+    echo "Loading env: $sudoer_config"
+    set -a
+    source "$sudoer_config"
+    set +a
+  fi
+fi
+
+# ===========================
+# 2. Root and tool checks
 # ===========================
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "ERROR: This must be run as root (sudo)."
@@ -15,9 +37,12 @@ if ! command -v mount.nfs >/dev/null 2>&1; then
 fi
 
 # ===========================
-# 2. Discover shares from env
+# 3. Discover shares from env
 # ===========================
-# Find MYMOUNT_NAS_<name> in environment, collect share names
+# Find MYMOUNT_NAS_<name> in environment, collect share names.
+# Note: these are the full NAS paths; define them however you like.
+# A common pattern: MYMOUNT_NAS_ROOT="server:/base", then
+# export MYMOUNT_NAS_backups="${MYMOUNT_NAS_ROOT}/backups"
 share_names=()
 while IFS='=' read -r var _; do
   [[ "$var" =~ ^MYMOUNT_NAS_([A-Za-z0-9_]+)$ ]] || continue
@@ -31,7 +56,7 @@ if [[ ${#share_names[@]} -eq 0 ]]; then
 fi
 
 # ===========================
-# 3. Build NAS/Local path maps
+# 4. Build NAS/Local path maps
 # ===========================
 declare -A NAS_PATHS
 declare -A LOCAL_PATHS
@@ -48,7 +73,7 @@ for share in "${share_names[@]}"; do
 done
 
 # ===========================
-# 4. Help function
+# 5. Help function
 # ===========================
 help() {
   echo "**USAGE**"
@@ -71,7 +96,7 @@ help() {
 }
 
 # ===========================
-# 5. Argument parsing
+# 6. Argument parsing
 # ===========================
 [[ $# -eq 0 ]] && help
 
@@ -114,7 +139,7 @@ if [[ ${#shares[@]} -eq 0 ]]; then
 fi
 
 # ===========================
-# 6. Action determination
+# 7. Action determination
 # ===========================
 mycommand="$(basename "$0")"
 action=""
@@ -130,7 +155,7 @@ fi
 nfsopts="${MYMOUNT_OPTS:-tcp,vers=3}"
 
 # ===========================
-# 7. Main loop (continue on errors)
+# 8. Main loop (continue on errors)
 # ===========================
 failures=()
 for share in "${shares[@]}"; do
